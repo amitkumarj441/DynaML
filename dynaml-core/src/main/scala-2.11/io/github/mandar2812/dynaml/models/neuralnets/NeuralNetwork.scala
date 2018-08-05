@@ -21,6 +21,7 @@ package io.github.mandar2812.dynaml.models.neuralnets
 import breeze.linalg.DenseVector
 import io.github.mandar2812.dynaml.graph.NeuralGraph
 import io.github.mandar2812.dynaml.models.ParameterizedLearner
+import io.github.mandar2812.dynaml.pipes.{DataPipe, MetaPipe}
 
 /**
   *
@@ -38,7 +39,8 @@ import io.github.mandar2812.dynaml.models.ParameterizedLearner
   *
   * @tparam Pattern The type of an individual data pattern
   * */
-trait NeuralNetwork[G, P, T <: NeuralGraph[P], Pattern] extends
+@deprecated("Neural Network base trait has been deprecated since DynaML v1.4.1")
+trait NeuralNetwork[G, P, Input, Output, T <: NeuralGraph[P, Input, Output], Pattern] extends
 ParameterizedLearner[G, T,
   DenseVector[Double], DenseVector[Double],
   Stream[Pattern]] {

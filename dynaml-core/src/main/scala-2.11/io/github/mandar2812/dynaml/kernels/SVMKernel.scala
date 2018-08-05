@@ -1,39 +1,43 @@
 package io.github.mandar2812.dynaml.kernels
 
 import breeze.linalg._
-import org.apache.log4j.{Priority, Logger}
+import io.github.mandar2812.dynaml.algebra.{PartitionedMatrix, PartitionedPSDMatrix}
+import io.github.mandar2812.dynaml.utils
+import org.apache.log4j.Logger
+import scalaxy.streams.optimize
+
 /**
  * Defines an abstract class outlines the basic
  * functionality requirements of an SVM Kernel
- */
-abstract class SVMKernel[M] extends
+ * */
+trait SVMKernel[M] extends
 CovarianceFunction[DenseVector[Double], Double, M]
 with Serializable {
 
   /**
-   * Builds an approximate nonlinear feature map
-   * which corresponds to an SVM Kernel. This is
-   * done using the Nystrom method i.e. approximating
-   * the eigenvalues and eigenvectors of the Kernel
-   * matrix of a given RDD
-   *
-   * For each data point,
-   * calculate m dimensions of the
-   * feature map where m is the number
-   * of eigenvalues/vectors obtained from
-   * the Eigen Decomposition.
-   *
-   * phi_i(x) = (1/sqrt(eigenvalue(i)))*Sum(k, 1, m, K(k, x)*eigenvector(i)(k))
-   *
-   * @param decomposition The Eigenvalue decomposition calculated
-   *                      from the kernel matrix of the prototype
-   *                      subset.
-   * @param prototypes The prototype subset.
-   *
-   * @param data  The dataset on which the feature map
-   *              is to be applied.
-   *
-   **/
+    * Builds an approximate nonlinear feature map
+    * which corresponds to an SVM Kernel. This is
+    * done using the Nystrom method i.e. approximating
+    * the eigenvalues and eigenvectors of the Kernel
+    * matrix of some data set.
+    *
+    * For each data point,
+    * calculate m dimensions of the
+    * feature map where m is the number
+    * of eigenvalues/vectors obtained from
+    * the Eigen Decomposition.
+    *
+    * phi_i(x) = (1/sqrt(eigenvalue(i)))*Sum(k, 1, m, K(k, x)*eigenvector(i)(k))
+    *
+    * @param decomposition The Eigenvalue decomposition calculated
+    *                      from the kernel matrix of the prototype
+    *                      subset.
+    * @param prototypes The prototype subset.
+    *
+    * @param data  The dataset on which the feature map
+    *              is to be applied.
+    *
+    * */
   def featureMapping(decomposition: (DenseVector[Double], DenseMatrix[Double]))
                     (prototypes: List[DenseVector[Double]])
                     (data: DenseVector[Double])
@@ -42,15 +46,14 @@ with Serializable {
     val buff: Transpose[DenseVector[Double]] = kernel.t * decomposition._2
     val lambda: DenseVector[Double] = decomposition._1.map(lam => 1/math.sqrt(lam))
     val ans = buff.t
-    ans :* lambda
+    ans *:* lambda
   }
 }
 
 /**
- * Defines a global singleton object
- * [[SVMKernel]] which has useful functions
- *
- * */
+  * Defines a global singleton object [[SVMKernel]]
+  * having functions which can construct kernel matrices.
+  */
 object SVMKernel {
 
   private val logger = Logger.getLogger(this.getClass)
@@ -72,14 +75,18 @@ object SVMKernel {
       eval: (T, T) =>  Double):
   KernelMatrix[DenseMatrix[Double]] = {
 
-    logger.info("Constructing kernel matrix.")
-
-
-    val kernel = DenseMatrix.tabulate[Double](length, length){
-      (i, j) => eval(mappedData(i), mappedData(j))
+    val kernelIndex = optimize {
+      utils.combine(Seq(mappedData.zipWithIndex, mappedData.zipWithIndex))
+        .filter(s => s.head._2 >= s.last._2)
+        .map(s => ((s.head._2, s.last._2), eval(s.head._1, s.last._1)))
+        .toMap
     }
 
-    logger.info("Dimension: " + kernel.rows + " x " + kernel.cols)
+    val kernel = DenseMatrix.tabulate[Double](length, length){
+      (i, j) => if (i >= j) kernelIndex((i,j)) else kernelIndex((j,i))
+    }
+
+    println("   Dimensions: " + kernel.rows + " x " + kernel.cols)
     new SVMKernelMatrix(kernel, length)
   }
 
@@ -87,72 +94,228 @@ object SVMKernel {
                                         eval: (T, T) =>  Double)
   : DenseMatrix[Double] = {
 
-    logger.info("Constructing cross kernel matrix.")
-    logger.info("Dimension: " + data1.length + " x " + data2.length)
+    val kernelIndex = optimize {
+      utils.combine(Seq(data1.zipWithIndex, data2.zipWithIndex))
+        .map(s => ((s.head._2, s.last._2), eval(s.head._1, s.last._1)))
+        .toMap
+    }
 
+    println("   Dimensions: " + data1.length + " x " + data2.length)
     DenseMatrix.tabulate[Double](data1.length, data2.length){
-      (i, j) => eval(data1(i), data2(j))
+      (i, j) => kernelIndex((i,j))
     }
   }
 
-}
+  def buildKernelGradMatrix[S <: Seq[T], T](
+    data1: S,
+    hyper_parameters: Seq[String],
+    eval: (T, T) => Double,
+    evalGrad: (String) => (T, T) =>  Double):
+  Map[String, DenseMatrix[Double]] = {
 
-/**
-  * Kernels with a locally stored matrix in the form
-  * of a breeze [[DenseMatrix]] instance.
-  * */
-trait LocalSVMKernel[Index] extends LocalScalarKernel[Index] {
-  override def buildKernelMatrix[S <: Seq[Index]](
-    mappedData: S,
-    length: Int): KernelMatrix[DenseMatrix[Double]] =
-    SVMKernel.buildSVMKernelMatrix[S, Index](mappedData, length, this.evaluate)
+    val (rows, cols) = (data1.length, data1.length)
+    println("Constructing Kernel/Grad Matrices")
+    println("   Dimensions: " + rows + " x " + cols)
 
-  override def buildCrossKernelMatrix[S <: Seq[Index]](dataset1: S, dataset2: S) =
-    SVMKernel.crossKernelMatrix(dataset1, dataset2, this.evaluate)
-}
+    val keys = Seq("kernel-matrix") ++ hyper_parameters
 
-/**
- * Defines a trait which outlines the basic
- * functionality of Kernel Matrices.
- * */
-trait KernelMatrix[T] extends Serializable {
-  protected val kernel: T
+    optimize {
+      utils.combine(Seq(data1.zipWithIndex, data1.zipWithIndex))
+        .filter(s => s.head._2 >= s.last._2)
+        .flatMap(s => {
+          keys.map(k =>
+            if(k == "kernel-matrix") (k, ((s.head._2, s.last._2), eval(s.head._1, s.last._1)))
+            else (k, ((s.head._2, s.last._2), evalGrad(k)(s.head._1, s.last._1))))
+        }).groupBy(_._1).map(cl => {
 
-  def eigenDecomposition(dimensions: Int): (DenseVector[Double], DenseMatrix[Double])
+        if (cl._1 == "kernel-matrix") println("Constructing Kernel Matrix")
+        else println("Constructing Grad Matrix for: "+cl._1)
 
-  def getKernelMatrix(): T = this.kernel
-}
+        val kernelIndex = cl._2.map(_._2).toMap
 
-class SVMKernelMatrix(
-    override protected val kernel: DenseMatrix[Double],
-    private val dimension: Long)
-  extends KernelMatrix[DenseMatrix[Double]]
-  with Serializable {
-  private val logger = Logger.getLogger(this.getClass)
+        (
+          cl._1,
+          DenseMatrix.tabulate[Double](rows, cols){
+            (i, j) => if (i >= j) kernelIndex((i,j)) else kernelIndex((j,i))
+          }
+        )
+      })
+    }
+  }
+
 
   /**
-   * Calculates the approximate eigen-decomposition of the
-   * kernel matrix
-   *
-   * @param dimensions The effective number of dimensions
-   *                   to be calculated in the feature map
-   *
-   * @return A Scala [[Tuple2]] containing the eigenvalues
-   *         and eigenvectors.
-   *
-   * */
-  override def eigenDecomposition(dimensions: Int = this.dimension.toInt):
-  (DenseVector[Double], DenseMatrix[Double]) = {
-    logger.log(Priority.INFO, "Eigenvalue decomposition of the kernel matrix using JBlas.")
-    val decomp = eig(this.kernel)
-    logger.log(Priority.INFO, "Eigenvalue stats: "
-      +min(decomp.eigenvalues)
-      +" =< lambda =< "
-      +max(decomp.eigenvalues)
-    )
-    (decomp.eigenvalues, decomp.eigenvectors)
+    * Returns the kernel matrix along with
+    * its derivatives for each hyper-parameter.
+    * */
+  def buildCrossKernelGradMatrix[S <: Seq[T], T](
+    data1: S, data2: S,
+    hyper_parameters: Seq[String],
+    eval: (T, T) => Double,
+    evalGrad: (String) => (T, T) =>  Double):
+  Map[String, DenseMatrix[Double]] = {
+
+    val (rows, cols) = (data1.length, data2.length)
+    println("Constructing Kernel/Grad Matrices")
+    println("   Dimensions: " + rows + " x " + cols)
+
+    val keys = Seq("kernel-matrix") ++ hyper_parameters
+
+    optimize {
+      utils.combine(Seq(data1.zipWithIndex, data2.zipWithIndex))
+        .flatMap(s => {
+          keys.map(k =>
+            if(k == "kernel-matrix") (k, ((s.head._2, s.last._2), eval(s.head._1, s.last._1)))
+            else (k, ((s.head._2, s.last._2), evalGrad(k)(s.head._1, s.last._1))))
+        }).groupBy(_._1).map(cl => {
+
+        if (cl._1 == "kernel-matrix") println("Constructing Kernel Matrix")
+        else println("Constructing Grad Matrix for: "+cl._1)
+
+        val kernelIndex = cl._2.map(_._2).toMap
+
+        (
+          cl._1,
+          DenseMatrix.tabulate[Double](rows, cols){
+            (i, j) => kernelIndex((i,j))
+          }
+        )
+      })
+    }
+  }
+
+  def buildPartitionedKernelMatrix[S <: Seq[T], T](
+    data: S,
+    length: Long,
+    numElementsPerRowBlock: Int,
+    numElementsPerColBlock: Int,
+    eval: (T, T) =>  Double): PartitionedPSDMatrix = {
+
+    val (rows, cols) = (length, length)
+
+    println("Constructing partitioned kernel matrix.")
+    println("Dimension: " + rows + " x " + cols)
+
+    val (num_R_blocks, num_C_blocks) = (
+      math.ceil(rows.toDouble/numElementsPerRowBlock).toLong,
+      math.ceil(cols.toDouble/numElementsPerColBlock).toLong)
+
+    println("Blocks: " + num_R_blocks + " x " + num_C_blocks)
+    val partitionedData = data.grouped(numElementsPerRowBlock).zipWithIndex.toStream
+
+    println("~~~~~~~~~~~~~~~~~~~~~~~")
+    println("Constructing Partitions")
+    new PartitionedPSDMatrix(optimize {
+      utils.combine(Seq(partitionedData, partitionedData))
+        .filter(c => c.head._2 >= c.last._2)
+        .toStream.map(c => {
+
+        val partitionIndex = (c.head._2.toLong, c.last._2.toLong)
+        println(":- Partition: "+partitionIndex)
+
+        val matrix =
+          if(partitionIndex._1 == partitionIndex._2)
+            buildSVMKernelMatrix(c.head._1, c.head._1.length, eval).getKernelMatrix()
+          else crossKernelMatrix(c.head._1, c.last._1, eval)
+
+        (partitionIndex, matrix)
+      })
+    }, rows, cols, num_R_blocks, num_C_blocks)
 
   }
 
+  def crossPartitonedKernelMatrix[T, S <: Seq[T]](
+    data1: S, data2: S,
+    numElementsPerRowBlock: Int,
+    numElementsPerColBlock: Int,
+    eval: (T, T) => Double): PartitionedMatrix = {
+
+    val (rows, cols) = (data1.length, data2.length)
+
+    println("Constructing cross partitioned kernel matrix.")
+    println("Dimension: " + rows + " x " + cols)
+
+    val (num_R_blocks, num_C_blocks) = (
+      math.ceil(rows.toDouble/numElementsPerRowBlock).toLong,
+      math.ceil(cols.toDouble/numElementsPerColBlock).toLong)
+
+    println("Blocks: " + num_R_blocks + " x " + num_C_blocks)
+    println("~~~~~~~~~~~~~~~~~~~~~~~")
+    println("Constructing Partitions")
+    new PartitionedMatrix(utils.combine(Seq(
+      data1.grouped(numElementsPerRowBlock).zipWithIndex.toStream,
+      data2.grouped(numElementsPerColBlock).zipWithIndex.toStream)
+    ).toStream.map(c => {
+      val partitionIndex = (c.head._2.toLong, c.last._2.toLong)
+      println(":- Partition: "+partitionIndex)
+      val matrix = crossKernelMatrix(c.head._1, c.last._1, eval)
+      (partitionIndex, matrix)
+    }), rows, cols, num_R_blocks, num_C_blocks)
+  }
+
+
+  def buildPartitionedKernelGradMatrix[S <: Seq[T], T](
+    data: S, length: Long,
+    numElementsPerRowBlock: Int,
+    numElementsPerColBlock: Int,
+    hyper_parameters: Seq[String],
+    eval: (T, T) => Double,
+    evalGrad: (String) => (T, T) =>  Double): Map[String, PartitionedPSDMatrix] = {
+
+    val (rows, cols) = (length, length)
+
+    println("Constructing partitioned kernel matrix and its derivatives")
+    println("Dimension: " + rows + " x " + cols)
+
+    val (num_R_blocks, num_C_blocks) = (
+      math.ceil(rows.toDouble/numElementsPerRowBlock).toLong,
+      math.ceil(cols.toDouble/numElementsPerColBlock).toLong)
+
+    println("Blocks: " + num_R_blocks + " x " + num_C_blocks)
+    val partitionedData = data.grouped(numElementsPerRowBlock).zipWithIndex.toStream
+
+    println("~~~~~~~~~~~~~~~~~~~~~~~")
+    println("Constructing Partitions")
+
+
+    //Build the result using flatMap - reduce
+    utils.combine(Seq(partitionedData, partitionedData))
+      .filter(c => c.head._2 >= c.last._2)
+      .toStream.flatMap(c => {
+      val partitionIndex = (c.head._2.toLong, c.last._2.toLong)
+      print("\n")
+      println(":- Partition: "+partitionIndex)
+
+      if(partitionIndex._1 == partitionIndex._2) {
+        SVMKernel.buildKernelGradMatrix(
+          c.head._1,
+          hyper_parameters,
+          eval, evalGrad).map(cluster => {
+          (cluster._1, (partitionIndex, cluster._2))
+        }).toSeq
+
+      } else {
+        SVMKernel.buildCrossKernelGradMatrix(
+          c.head._1, c.last._1,
+          hyper_parameters,
+          eval, evalGrad).map(cluster => {
+          (cluster._1, (partitionIndex, cluster._2))
+        }).toSeq
+
+      }
+    }).groupBy(_._1).map(cluster => {
+
+      val hyp = cluster._1
+      val matData = cluster._2.map(_._2)
+      (hyp, new PartitionedPSDMatrix(matData, rows, cols, num_R_blocks, num_C_blocks))
+    })
+
+  }
 }
+
+
+
+
+
+
 

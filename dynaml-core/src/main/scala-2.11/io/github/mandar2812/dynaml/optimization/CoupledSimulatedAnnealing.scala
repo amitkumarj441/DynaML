@@ -18,111 +18,35 @@ under the License.
 * */
 package io.github.mandar2812.dynaml.optimization
 
-import breeze.stats.distributions.CauchyDistribution
-
-import scala.util.Random
-
 /**
- * @author mandar datum 25/6/15.
- *
- * Implementation of the Coupled Simulated Annealing algorithm
- * for global optimization.
- */
-class CoupledSimulatedAnnealing[M <: GloballyOptimizable](model: M)
-  extends GridSearch[M](model: M){
-
-  protected var MAX_ITERATIONS: Int = 10
-
-  def setMaxIterations(m: Int) = {
-    MAX_ITERATIONS = m
-    this
-  }
-
-  override def setLogScale(t: Boolean) = {
-    logarithmicScale = t
-    this
-  }
-
-  override def setGridSize(s: Int) = {
-    this.gridsize = s
-    this
-  }
-
-  override def setStepSize(s: Double) = {
-    this.step = s
-    this
-  }
-
-  protected val acceptance = (energy: Double,
-                              coupling: Double,
-                              temperature: Double) => {
-    val prob = math.exp(-1.0*energy/temperature)
-    prob/(prob+coupling)
-  }
-
-  protected val mutate = (config: Map[String, Double], temperature: Double) => {
-    config.map((param) => {
-      val dist = new CauchyDistribution(0.0, temperature)
-      val mutated = param._2 + dist.sample()
-      (param._1, math.abs(mutated))
-    })
-  }
-
-  def acceptanceTemperature(initialTemp: Double)(k: Int): Double =
-    initialTemp/math.log(k.toDouble+1.0)
-
-  def mutationTemperature(initialTemp: Double)(k: Int): Double =
-    initialTemp/k.toDouble
+  * Implementation of the Coupled Simulated Annealing algorithm
+  * for global optimization.
+  *
+  * @author mandar datum 25/6/15.
+  *
+  * */
+class CoupledSimulatedAnnealing[M <: GloballyOptimizable](model: M) extends
+  AbstractCSA[M, M](model: M) with
+  GlobalOptimizer[M] {
 
   override def optimize(initialConfig: Map[String, Double],
                         options: Map[String, String] = Map()) = {
 
-    //create grid
-    val iTemp = 1.0
-    var accTemp = iTemp
-    var mutTemp = iTemp
 
-    val energyLandscape = getEnergyLandscape(initialConfig, options)
-
-    var currentEnergyLandscape = energyLandscape
-    var newEnergyLandscape = energyLandscape
-
-    (1 to MAX_ITERATIONS).foreach((iteration) => {
-      logger.info("**************************")
-      logger.info("CSA Iteration: "+iteration)
-      //mutate each element of the grid with
-      //the generating distribution
-      //and accept using the acceptance distribution
-      mutTemp = mutationTemperature(iTemp)(iteration)
-      accTemp = acceptanceTemperature(iTemp)(iteration)
-      val couplingFactor = currentEnergyLandscape.map(c => math.exp(-1.0*c._1/accTemp)).sum
-      //Now mutate each solution and accept/reject
-      //according to the acceptance probability
-
-      newEnergyLandscape = currentEnergyLandscape.map((config) => {
-        //mutate this config
-        val new_config = mutate(config._2, mutTemp)
-        val new_energy = system.energy(new_config, options)
-        val ans = if(new_energy < config._1) {
-          (new_energy, new_config)
-        } else {
-          val acc = acceptance(new_energy, couplingFactor, accTemp)
-          if(Random.nextDouble <= acc) (new_energy, new_config) else config
-        }
-        ans
-      })
-
-      currentEnergyLandscape = newEnergyLandscape
-
-    })
-
-    val landscape = currentEnergyLandscape.toMap
+    val landscape = performCSA(initialConfig, options).toMap
     val optimum = landscape.keys.min
 
-    logger.info("Optimum value of energy is: "+optimum+
-      "\nConfiguration: "+landscape(optimum))
+    print("Optimum value of energy is: ")
+    pprint.pprintln(optimum)
+    println("Configuration: ")
+    pprint.pprintln(landscape(optimum))
 
-    system.energy(landscape(optimum), options)
+    //Persist the current configuration to the model memory
+    if(options.contains("persist") && (options("persist") == "true" || options("persist") == "1"))
+      system.persist(landscape(optimum))
+
     (system, landscape(optimum))
   }
 }
+
+

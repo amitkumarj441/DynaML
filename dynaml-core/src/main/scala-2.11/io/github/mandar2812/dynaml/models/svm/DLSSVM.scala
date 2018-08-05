@@ -19,7 +19,7 @@ under the License.
 package io.github.mandar2812.dynaml.models.svm
 
 import breeze.linalg.{DenseMatrix, DenseVector, inv, trace}
-import io.github.mandar2812.dynaml.kernels.CovarianceFunction
+import io.github.mandar2812.dynaml.kernels.{CovarianceFunction, LocalScalarKernel}
 import io.github.mandar2812.dynaml.models.LinearModel
 import io.github.mandar2812.dynaml.models.gp.AbstractGPRegressionModel
 import io.github.mandar2812.dynaml.optimization.{GloballyOptWithGrad, GloballyOptimizable, LSSVMLinearSolver, RegularizedOptimizer}
@@ -34,10 +34,11 @@ import io.github.mandar2812.dynaml.optimization.{GloballyOptWithGrad, GloballyOp
   *             input data.
   *
   * @param numPoints The number of data points in [[data]]
+  *
+  * @param modelTask Set to 'regression' or 'classification'
   */
 class DLSSVM(data: Stream[(DenseVector[Double], Double)], numPoints: Int,
-             kern: CovarianceFunction[DenseVector[Double],
-               Double, DenseMatrix[Double]],
+             kern: LocalScalarKernel[DenseVector[Double]],
              modelTask: String = "regression")
   extends AbstractDualLSSVM[DenseVector[Double]](data, numPoints, kern)
   with GloballyOptWithGrad {
@@ -106,7 +107,7 @@ class DLSSVM(data: Stream[(DenseVector[Double], Double)], numPoints: Int,
     val trainingLabels = DenseVector(g.map(_._2).toArray)
     val noiseMat = DenseMatrix.eye[Double](num_points)*h("regularization")
 
-    AbstractGPRegressionModel.logLikelihood(trainingLabels, kernelTraining, noiseMat)
+    AbstractGPRegressionModel.logLikelihood(trainingLabels, kernelTraining + noiseMat)
   }
 
   /**

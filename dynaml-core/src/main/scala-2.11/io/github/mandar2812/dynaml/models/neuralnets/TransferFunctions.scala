@@ -18,7 +18,10 @@ under the License.
 * */
 package io.github.mandar2812.dynaml.models.neuralnets
 
-import breeze.numerics.sigmoid
+import breeze.linalg.DenseVector
+import breeze.numerics.{cosh, sigmoid, sinh, tanh}
+import io.github.mandar2812.dynaml.pipes.Scaler
+import org.apache.spark.annotation.Experimental
 
 /**
  * @author mandar2812
@@ -28,15 +31,23 @@ import breeze.numerics.sigmoid
 
 object TransferFunctions {
 
+  val SIGMOID = "logsig"
+
+  val TANH = "tansig"
+
+  val LIN = "linear"
+
+  val RECLIN = "reclinear"
+
   /**
    * Hyperbolic tangent function
    * */
-  val tansig = math.tanh _
+  val tansig = (x:Double) => tanh(x)
 
   /**
     * First derivative of the hyperbolic tangent function
     * */
-  val Dtansig = (x: Double) => tansig(x)/(math.sinh(x)*math.cosh(x))
+  val Dtansig = (x: Double) => tansig(x)/(sinh(x)*cosh(x))
 
   /**
    * Sigmoid/Logistic function
@@ -52,7 +63,7 @@ object TransferFunctions {
   /**
    * Linear/Identity Function
    * */
-  val lin = (x: Double) => identity(x)
+  val lin = (x: Double) => x
 
   /**
     * First derivative of the linear function
@@ -68,6 +79,14 @@ object TransferFunctions {
     * First derivative of the rectified linear function
     * */
   val DrecLin = (x: Double) => if(x < 0 ) 0.0 else 1.0
+
+
+  val selu = (l: Double, a: Double) => (x: Double) => if(x <= 0d) l*(a*math.exp(x) - a) else x
+
+
+
+  val Dselu = (l: Double, a: Double) => (x: Double) => if(x <= 0d) l*a*math.exp(x) else 1.0
+
 
   /**
    * Function which returns
@@ -97,3 +116,83 @@ object TransferFunctions {
       case "reclinear" => DrecLin
     }
 }
+
+trait Activation[I] extends Scaler[I] {
+  val grad: Scaler[I]
+}
+
+object Activation {
+
+  def apply[I](f: (I) => I, gr: (I) => I): Activation[I] = new Activation[I] {
+    override val grad = Scaler(gr)
+
+    override def run(data: I) = f(data)
+  }
+
+  def apply[I](f: Scaler[I], gr: Scaler[I]): Activation[I] = apply(f.run _, gr.run _)
+}
+
+object Sigmoid extends Activation[Double] {
+
+  override val grad = Scaler(TransferFunctions.Dlogsig)
+
+  override def run(data: Double) = TransferFunctions.logsig(data)
+}
+
+object VectorSigmoid extends Activation[DenseVector[Double]] {
+
+  override val grad = Scaler((x: DenseVector[Double]) => x.map(TransferFunctions.Dlogsig))
+
+  override def run(data: DenseVector[Double]) = data.map(TransferFunctions.logsig)
+}
+
+object VectorTansig extends Activation[DenseVector[Double]] {
+
+  override val grad = Scaler((x: DenseVector[Double]) => x.map(TransferFunctions.Dtansig))
+
+  override def run(data: DenseVector[Double]) = data.map(TransferFunctions.tansig)
+}
+
+object VectorLinear extends Activation[DenseVector[Double]] {
+
+  override val grad = Scaler((x: DenseVector[Double]) => x.map(TransferFunctions.Dlin))
+
+  override def run(data: DenseVector[Double]) = data.map(TransferFunctions.lin)
+}
+
+object VectorRecLin extends Activation[DenseVector[Double]] {
+
+  override val grad = Scaler((x: DenseVector[Double]) => x.map(TransferFunctions.DrecLin))
+
+  override def run(data: DenseVector[Double]) = data.map(TransferFunctions.recLin)
+}
+
+/**
+  * Implementation of the SELU activation function
+  * proposed by Hochreiter et. al
+  * */
+case class VectorSELU(lambda: Double, alpha: Double) extends Activation[DenseVector[Double]] {
+
+  val SELU = TransferFunctions.selu(lambda, alpha)
+
+  val DSELU = TransferFunctions.Dselu(lambda, alpha)
+
+  override val grad = Scaler((x: DenseVector[Double]) => x.map(DSELU))
+
+  override def run(data: DenseVector[Double]) = data.map(SELU)
+}
+
+/**
+  * 'Magic' SELU activation with specific values of lambda and alpha
+  * */
+object MagicSELU extends VectorSELU(1.050700987355, 1.67326324235)
+
+@Experimental
+class VectorWavelet(motherWavelet: (Double) => Double, motherWaveletGr: (Double) => Double)
+  extends Activation[DenseVector[Double]] {
+
+  override val grad = Scaler((x: DenseVector[Double]) => x.map(motherWaveletGr))
+
+  override def run(data: DenseVector[Double]) = data.map(motherWavelet)
+}
+

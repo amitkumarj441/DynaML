@@ -18,8 +18,9 @@ under the License.
 * */
 package io.github.mandar2812.dynaml.models.gp
 
-import breeze.linalg.{DenseMatrix, DenseVector}
-import io.github.mandar2812.dynaml.kernels.CovarianceFunction
+import breeze.linalg.DenseVector
+import io.github.mandar2812.dynaml.kernels.LocalScalarKernel
+import io.github.mandar2812.dynaml.pipes.DataPipe
 
 import scala.annotation.tailrec
 import scala.collection.mutable.{MutableList => ML}
@@ -37,12 +38,11 @@ import scala.collection.mutable.{MutableList => ML}
   * e|f(x) ~ N(0, noise(X,X))
   */
 class GPNarModel(order: Int,
-                 cov: CovarianceFunction[DenseVector[Double],
-                   Double, DenseMatrix[Double]],
-                 nL: CovarianceFunction[DenseVector[Double],
-                   Double, DenseMatrix[Double]],
-                 trainingdata: Seq[(DenseVector[Double], Double)]) extends
-GPRegression(cov, nL, trainingdata) {
+                 cov: LocalScalarKernel[DenseVector[Double]],
+                 nL: LocalScalarKernel[DenseVector[Double]],
+                 trainingdata: Seq[(DenseVector[Double], Double)],
+                 meanFunc: DataPipe[DenseVector[Double], Double] = DataPipe(_ => 0.0)) extends
+GPRegression(cov, nL, trainingdata, meanFunc) {
 
   val modelOrder = order
 

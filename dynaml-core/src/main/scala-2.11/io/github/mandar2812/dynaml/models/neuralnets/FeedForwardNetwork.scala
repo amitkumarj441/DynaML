@@ -32,17 +32,21 @@ import io.github.mandar2812.dynaml.pipes.DataPipe
   * backed by an underlying graph.
   *
   * @tparam D The type of the underlying training data structure.
+  *
   * @param data The training data
+  *
   * @param netgraph The [[FFNeuralGraph]] object which represents the
   *                 network.
+  *
   * @param transform A [[DataPipe]] which takes input of type [[D]] and
   *                  returns a [[Stream]] of input, output tuples.
   *
   * */
-class FeedForwardNetwork[D](
-  data: D, netgraph: FFNeuralGraph,
-  transform: DataPipe[D, Stream[(DenseVector[Double], DenseVector[Double])]])
-  extends NeuralNetwork[D, FramedGraph[Graph], FFNeuralGraph,
+@deprecated("Feed Forward Neural Network class has been deprecated since DynaML v1.4.1")
+class FeedForwardNetwork[D](data: D, netgraph: FFNeuralGraph)(
+  implicit val transform: DataPipe[D, Stream[(DenseVector[Double], DenseVector[Double])]])
+  extends NeuralNetwork[D, FramedGraph[Graph],
+    DenseVector[Double], DenseVector[Double], FFNeuralGraph,
     (DenseVector[Double], DenseVector[Double])]{
 
   override protected val g = data

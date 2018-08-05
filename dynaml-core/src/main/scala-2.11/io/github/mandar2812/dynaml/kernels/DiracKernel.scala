@@ -1,6 +1,24 @@
+/*
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+* */
 package io.github.mandar2812.dynaml.kernels
 
-import breeze.linalg.{norm, DenseVector, DenseMatrix}
+import breeze.linalg.{DenseMatrix, DenseVector, norm}
 
 /**
   * Dirac kernel is equivalent to the
@@ -23,13 +41,17 @@ class DiracKernel(private var noiseLevel: Double = 1.0)
     this.noiseLevel = d
   }
 
-  override def evaluate(x: DenseVector[Double],
-                        y: DenseVector[Double]): Double =
-    if (norm(x-y, 2) == 0) math.abs(state("noiseLevel"))*1.0 else 0.0
+  override def evaluateAt(
+    config: Map[String, Double])(
+    x: DenseVector[Double],
+    y: DenseVector[Double]): Double =
+    if (norm(x-y, 2) == 0) math.abs(config("noiseLevel"))*1.0 else 0.0
 
-  override def gradient(x: DenseVector[Double],
-                        y: DenseVector[Double]): Map[String, Double] =
-    Map("noiseLevel" -> 1.0*evaluate(x,y)/math.abs(state("noiseLevel")))
+  override def gradientAt(
+    config: Map[String, Double])(
+    x: DenseVector[Double],
+    y: DenseVector[Double]): Map[String, Double] =
+    Map("noiseLevel" -> 1.0*evaluateAt(config)(x,y)/math.abs(config("noiseLevel")))
 
   override def buildKernelMatrix[S <: Seq[DenseVector[Double]]](mappedData: S,
                                                                 length: Int)
@@ -50,17 +72,29 @@ class MAKernel(private var noiseLevel: Double = 1.0)
     this.noiseLevel = d
   }
 
-  override def evaluate(x: Double,
-                        y: Double): Double =
-    if (x-y == 0.0) math.abs(state("noiseLevel"))*1.0 else 0.0
+  override def evaluateAt(
+    config: Map[String, Double])(
+    x: Double,
+    y: Double): Double =
+    if (x-y == 0.0) math.abs(config("noiseLevel"))*1.0 else 0.0
 
-  override def gradient(x: Double,
-                        y: Double): Map[String, Double] =
-    Map("noiseLevel" -> 1.0*evaluate(x,y)/math.abs(state("noiseLevel")))
+  override def gradientAt(
+    config: Map[String, Double])(
+    x: Double, y: Double): Map[String, Double] =
+    Map("noiseLevel" -> 1.0*evaluateAt(config)(x,y)/math.abs(config("noiseLevel")))
 
   override def buildKernelMatrix[S <: Seq[Double]](mappedData: S,
                                                    length: Int)
   : KernelMatrix[DenseMatrix[Double]] =
     new SVMKernelMatrix(DenseMatrix.eye[Double](length)*state("noiseLevel"), length)
 
+}
+
+class CoRegDiracKernel extends LocalSVMKernel[Int] {
+  override val hyper_parameters: List[String] = List()
+
+  override def gradientAt(config: Map[String, Double])(x: Int, y: Int): Map[String, Double] = Map()
+
+  override def evaluateAt(config: Map[String, Double])(x: Int, y: Int): Double =
+    if(x == y) 1.0 else 0.0
 }

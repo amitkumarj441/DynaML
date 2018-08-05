@@ -23,7 +23,7 @@ import io.github.mandar2812.dynaml.DynaMLPipe
 import io.github.mandar2812.dynaml.evaluation.BinaryClassificationMetrics
 import io.github.mandar2812.dynaml.graph.FFNeuralGraph
 import io.github.mandar2812.dynaml.kernels.LocalSVMKernel
-import io.github.mandar2812.dynaml.models.GLMPipe
+import io.github.mandar2812.dynaml.modelpipe.GLMPipe
 import io.github.mandar2812.dynaml.models.lm.{GeneralizedLinearModel, LogisticGLM, ProbitGLM}
 import io.github.mandar2812.dynaml.models.neuralnets.FeedForwardNetwork
 import io.github.mandar2812.dynaml.models.svm.DLSSVM
@@ -60,8 +60,8 @@ object TestNNWineQuality {
         )
 
         val model = new FeedForwardNetwork[
-          Stream[(BDV[Double], Double)]
-          ](trainTest._1._1, gr, transform)
+                  Stream[(BDV[Double], Double)]
+                  ](trainTest._1._1, gr)(transform)
 
         model.setLearningRate(stepSize)
           .setMaxIterations(maxIt)
@@ -116,9 +116,9 @@ object TestNNWineQuality {
       DynaMLPipe.featuresGaussianStandardization >
       DataPipe(modelTrainTest)
 
-    trainTestPipe run
-      ("data/winequality-"+wineType+".csv",
-        "data/winequality-"+wineType+".csv")
+    val dataFile = dataDir+"winequality-" + wineType + ".csv"
+
+    trainTestPipe(dataFile, dataFile)
 
   }
 
@@ -191,9 +191,10 @@ object TestLogisticWineQuality {
             (BDV[Double], BDV[Double]))) => tt._1._2)) >
       testPipe
 
-    trainTestPipe run
-      ("data/winequality-" + wineType + ".csv",
-        "data/winequality-" + wineType + ".csv")
+
+    val dataFile = dataDir+"winequality-" + wineType + ".csv"
+
+    trainTestPipe(dataFile, dataFile)
 
   }
 
@@ -251,9 +252,9 @@ object TestLSSVMWineQuality {
       DynaMLPipe.featuresGaussianStandardization >
       DataPipe(modelTrainTest)
 
-    trainTestPipe run
-      ("data/winequality-"+wineType+".csv",
-        "data/winequality-"+wineType+".csv")
+    val dataFile = dataDir+"winequality-" + wineType + ".csv"
+
+    trainTestPipe(dataFile, dataFile)
 
   }
 }

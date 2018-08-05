@@ -24,20 +24,27 @@ import io.github.mandar2812.dynaml.optimization.{GloballyOptimizable,
 RegularizedLSSolver, RegularizedOptimizer}
 
 /**
-  * Created by mandar on 29/3/16.
+  * @author mandar2812 date: 29/3/16.
+  *
+  * Represents a normal distribution based regression GLM.
+  *
+  * @param data The training data as a stream of tuples
+  * @param numPoints The number of training data points
+  * @param map The basis functions used to map the input
+  *            features to a possible higher dimensional space
   */
 class RegularizedGLM(data: Stream[(DenseVector[Double], Double)],
                      numPoints: Int,
                      map: (DenseVector[Double]) => DenseVector[Double] =
-                     identity[DenseVector[Double]] _)
+                     identity[DenseVector[Double]])
   extends GeneralizedLinearModel[(DenseMatrix[Double], DenseVector[Double])](data, numPoints, map)
     with GloballyOptimizable {
 
   override val task = "regression"
 
   override protected val optimizer: RegularizedOptimizer[DenseVector[Double],
-    DenseVector[Double], Double,
-    (DenseMatrix[Double], DenseVector[Double])] = new RegularizedLSSolver
+    DenseVector[Double], Double, (DenseMatrix[Double], DenseVector[Double])] =
+    new RegularizedLSSolver
 
 
   override def prepareData(d: Stream[(DenseVector[Double], Double)]) = {
@@ -49,6 +56,6 @@ class RegularizedGLM(data: Stream[(DenseVector[Double], Double)],
       d.map(p => DenseVector(p._2)):_*
     )
 
-    (designMatrix, responseVector)
+    (designMatrix.t*designMatrix, designMatrix.t*responseVector)
   }
 }

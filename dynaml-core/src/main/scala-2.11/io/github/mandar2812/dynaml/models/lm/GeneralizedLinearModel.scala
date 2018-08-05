@@ -1,10 +1,21 @@
 /*
- * Copyright (c) 2016. Lorem ipsum dolor sit amet, consectetur adipiscing elit.
- * Morbi non lorem porttitor neque feugiat blandit. Ut vitae ipsum eget quam lacinia accumsan.
- * Etiam sed turpis ac ipsum condimentum fringilla. Maecenas magna.
- * Proin dapibus sapien vel ante. Aliquam erat volutpat. Pellentesque sagittis ligula eget metus.
- * Vestibulum commodo. Ut rhoncus gravida arcu.
- */
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+* */
 
 package io.github.mandar2812.dynaml.models.lm
 
@@ -16,59 +27,36 @@ import io.github.mandar2812.dynaml.optimization.GloballyOptimizable
 import scala.util.Random
 
 /**
-  * Created by mandar on 4/4/16.
+  * @author mandar2812 date: 4/4/16.
+  *
+  * A generalised linear model for local data sets.
+  * This is extended for Regression in [[RegularizedGLM]]
+  * and for binary classification in [[LogisticGLM]] and [[ProbitGLM]]
   */
-abstract class GeneralizedLinearModel[T](data: Stream[(DenseVector[Double], Double)],
-                             numPoints: Int,
-                             map: (DenseVector[Double]) => DenseVector[Double] =
-                             identity[DenseVector[Double]] _)
-  extends LinearModel[Stream[(DenseVector[Double], Double)],
-    DenseVector[Double], DenseVector[Double], Double, T]
+abstract class GeneralizedLinearModel[T](
+  data: Stream[(DenseVector[Double], Double)], numPoints: Int,
+  map: (DenseVector[Double]) => DenseVector[Double] = identity[DenseVector[Double]])
+  extends GenericGLM[Stream[(DenseVector[Double], Double)], T](data, numPoints, map)
     with GloballyOptimizable {
 
-  override protected val g = data
+  override protected val g: Stream[(DenseVector[Double], Double)] = data
 
   val task: String
 
-  val h: (Double) => Double = identity _
+  override val h: (Double) => Double = identity
 
   featureMap = map
 
   def dimensions = featureMap(data.head._1).length
 
+  /**
+    * Initialize parameters to a vector of ones.
+    * */
   override def initParams(): DenseVector[Double] =
     DenseVector.ones[Double](dimensions + 1)
 
 
   override protected var params: DenseVector[Double] = initParams()
-
-  override def clearParameters(): Unit = {
-    params = initParams()
-  }
-
-  def prepareData(d: Stream[(DenseVector[Double], Double)]): T
-
-
-  /**
-    * Learn the parameters
-    * of the model which
-    * are in a node of the
-    * graph.
-    *
-    **/
-  override def learn(): Unit = {
-    params = optimizer.optimize(numPoints,
-      prepareData(g), initParams())
-  }
-
-  /**
-    * Predict the value of the
-    * target variable given a
-    * point.
-    *
-    **/
-  override def predict(point: DenseVector[Double]): Double =
-    h(params dot DenseVector(featureMap(point).toArray ++ Array(1.0)))
 
   override protected var hyper_parameters: List[String] =
     List("regularization")
@@ -135,14 +123,27 @@ abstract class GeneralizedLinearModel[T](data: Stream[(DenseVector[Double], Doub
   }
 }
 
+
+
+
 object GeneralizedLinearModel {
+
+  /**
+    *  Create a generalized linear model.
+    *
+    *  @param data The training data as a stream of tuples
+    *  @param task Set to 'regression' or 'classification'
+    *  @param map Feature map or basis functions
+    *  @param modeltype Set to either 'logit' or 'probit'
+    *
+    * */
   def apply[T](data: Stream[(DenseVector[Double], Double)],
                task: String = "regression",
                map: (DenseVector[Double]) => DenseVector[Double] =
-               identity[DenseVector[Double]] _,
+               identity[DenseVector[Double]],
                modeltype: String = "") = task match {
     case "regression" => new RegularizedGLM(data, data.length, map).asInstanceOf[GeneralizedLinearModel[T]]
-    case "classification" => task match {
+    case "classification" => modeltype match {
       case "probit" => new ProbitGLM(data, data.length, map).asInstanceOf[GeneralizedLinearModel[T]]
       case _ => new LogisticGLM(data, data.length, map).asInstanceOf[GeneralizedLinearModel[T]]
     }

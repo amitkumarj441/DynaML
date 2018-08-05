@@ -16,29 +16,41 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 * */
+
 package io.github.mandar2812.dynaml.kernels
 
-import breeze.linalg.{norm, DenseVector, DenseMatrix}
+import breeze.linalg.{DenseMatrix, DenseVector, norm}
+import spire.algebra.Field
 
 /**
   * T-Student Kernel
   * K(x,y) = 1/(1 + ||x - y||<sup>d</sup>)
   */
-class TStudentKernel(private var d: Double = 1.0)
-  extends SVMKernel[DenseMatrix[Double]]
-  with LocalSVMKernel[DenseVector[Double]]
+class TStudentKernel(private var d: Double = 1.0)(implicit ev: Field[DenseVector[Double]])
+  extends StationaryKernel[DenseVector[Double], Double, DenseMatrix[Double]]
+    with SVMKernel[DenseMatrix[Double]]
+    with LocalScalarKernel[DenseVector[Double]]
   with Serializable {
 
   override val hyper_parameters = List("d")
 
   state = Map("d" -> d)
 
-  override def evaluate(x: DenseVector[Double], y: DenseVector[Double]): Double = {
-    val diff = x - y
-    1.0/(1.0 + math.pow(norm(diff, 2), state("d")))
-  }
+  override def evalAt(config: Map[String, Double])(x: DenseVector[Double]): Double =
+    1.0/(1.0 + math.pow(norm(x, 2), config("d")))
 
   def getD: Double = state("d")
+
+  override def gradientAt(
+    config: Map[String, Double])(
+    x: DenseVector[Double],
+    y: DenseVector[Double]) = {
+
+    val dist = norm(x-y)
+    val dist_d = math.pow(dist, config("d"))
+
+    if(dist > 0.0) Map("d" -> -dist_d*math.log(dist)/math.pow(1.0 + dist_d, 2.0)) else Map("d" -> 0.0)
+  }
 
 }
 
@@ -47,6 +59,36 @@ class TStudentCovFunc(private var d: Double) extends LocalSVMKernel[Double] {
 
   state = Map("d" -> d)
 
-  override def evaluate(x: Double, y: Double): Double =
-    1.0/(1.0 + math.pow(math.abs(x-y), state("d")))
+  override def evaluateAt(config: Map[String, Double])(x: Double, y: Double): Double =
+    1.0/(1.0 + math.pow(math.abs(x-y), config("d")))
+
+  override def gradientAt(config: Map[String, Double])(x: Double, y: Double) = {
+
+    val dist = math.abs(x-y)
+    val dist_d = math.pow(dist, config("d"))
+
+    if(dist > 0.0) Map("d" -> -dist_d*math.log(dist)/math.pow(1.0 + dist_d, 2.0)) else Map("d" -> 0.0)
+  }
+}
+
+class CoRegTStudentKernel(bandwidth: Double) extends LocalSVMKernel[Int] {
+
+  override val hyper_parameters: List[String] = List("CoRegD")
+
+  state = Map("CoRegD" -> bandwidth)
+
+  override def evaluateAt(config: Map[String, Double])(x: Int, y: Int): Double = {
+    val diff = x - y
+    1.0/(1.0 + math.pow(math.abs(diff.toDouble), config("CoRegD")))
+  }
+
+  override def gradientAt(config: Map[String, Double])(x: Int, y: Int) = {
+
+    val dist = math.abs(x-y).toDouble
+    val dist_d = math.pow(dist, config("CoRegD"))
+
+    if(dist > 0.0) Map("CoRegD" -> -dist_d*math.log(dist)/math.pow(1.0 + dist_d, 2.0)) else Map("CoRegD" -> 0.0)
+  }
+
+  def getD: Double = state("CoRegD")
 }

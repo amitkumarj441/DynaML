@@ -19,9 +19,9 @@ under the License.
 package io.github.mandar2812.dynaml.optimization
 
 import breeze.linalg.DenseVector
-import io.github.mandar2812.dynaml.graph.utils.CausalEdge
 import io.github.mandar2812.dynaml.pipes.DataPipe
-import org.apache.log4j.{Logger, Priority}
+import org.apache.log4j.Logger
+import spire.implicits._
 
 /**
  * Implements Gradient Descent on the graph
@@ -114,12 +114,12 @@ object GradientDescent {
       initial: DenseVector[Double],
       POutEdges: T,
       transform: DataPipe[T, Stream[(DenseVector[Double], Double)]]): DenseVector[Double] = {
-    var count = 1
     var oldW: DenseVector[Double] = initial
     var newW = oldW
 
-    logger.info("Training model using SGD")
-    while(count <= numIterations) {
+    println("Performing SGD")
+    cfor(1)(count => count < numIterations, count => count + 1)( count => {
+
       val cumGradient: DenseVector[Double] = DenseVector.zeros(initial.length)
       var cumLoss: Double = 0.0
       transform.run(POutEdges).foreach((ed) => {
@@ -127,12 +127,17 @@ object GradientDescent {
         val y = ed._2
         cumLoss += gradient.compute(x, y, oldW, cumGradient)
       })
-      logger.info("Average Loss; Iteration "+count+": "+cumLoss/nPoints.toDouble)
+
+      print("\nIteration: ")
+      pprint.pprintln(count)
+      print("Average Loss = ")
+      pprint.pprintln(cumLoss/nPoints.toDouble)
+
       newW = updater.compute(oldW, cumGradient / nPoints.toDouble,
-        stepSize, 1, regParam)._1
+        stepSize, count, regParam)._1
       oldW = newW
-      count += 1
-    }
+    })
+
     newW
   }
 
@@ -147,11 +152,12 @@ object GradientDescent {
       POutEdges: T,
       miniBatchFraction: Double,
       transform: DataPipe[T, Stream[(DenseVector[Double], Double)]]): DenseVector[Double] = {
-    var count = 1
+
     var oldW: DenseVector[Double] = initial
     var newW = oldW
-    logger.info("Training model using SGD")
-    while(count <= numIterations) {
+    println("Performing batch SGD")
+
+    cfor(1)(count => count < numIterations, count => count + 1)( count => {
       val cumGradient: DenseVector[Double] = DenseVector.zeros(initial.length)
       var cumLoss: Double = 0.0
       transform.run(POutEdges).foreach((ed) => {
@@ -161,12 +167,16 @@ object GradientDescent {
           cumLoss += gradient.compute(x, y, oldW, cumGradient)
         }
       })
-      logger.info("Average Loss; Iteration "+count+": "+cumLoss/nPoints.toDouble)
+
+      print("\nIteration: ")
+      pprint.pprintln(count)
+      print("Average Loss = ")
+      pprint.pprintln(cumLoss/nPoints.toDouble)
+
       newW = updater.compute(oldW, cumGradient / nPoints.toDouble,
         stepSize, count, regParam)._1
       oldW = newW
-      count += 1
-    }
+    })
     newW
   }
 

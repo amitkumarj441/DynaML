@@ -19,7 +19,13 @@ under the License.
 package io.github.mandar2812.dynaml.optimization
 
 import breeze.linalg._
+import io.github.mandar2812.dynaml.algebra.{SparkPSDMatrix, SparkVector, normDist}
+import io.github.mandar2812.dynaml.algebra._
+import io.github.mandar2812.dynaml.algebra.DistributedMatrixOps._
+import io.github.mandar2812.dynaml.algebra.BlockedMatrixOps._
+import io.github.mandar2812.dynaml.algebra.PartitionedMatrixOps._
 import io.github.mandar2812.dynaml.graph.utils.CausalEdge
+import org.apache.log4j.Logger
 
 /**
  * @author mandar2812
@@ -69,6 +75,9 @@ class ConjugateGradient extends RegularizedOptimizer[DenseVector[Double],
 }
 
 object ConjugateGradient {
+
+  val logger = Logger.getLogger(this.getClass)
+
   /**
    * Solves for x in A.x = b (where A is symmetric +ve semi-definite)
    * iteratively using the Conjugate Gradient
@@ -80,28 +89,204 @@ object ConjugateGradient {
             epsilon: Double,
             MAX_ITERATIONS: Int): DenseVector[Double] = {
     val residual = b - (A*x)
-    val p = residual
+    val p = b - (A*x)
     var count = 1.0
-    var alpha = math.pow(norm(residual, 2), 2)/(p.t * (A*p))
+    var alpha = 0.0
     var beta = 0.0
     while(norm(residual, 2) >= epsilon && count <= MAX_ITERATIONS) {
+      //update alpha
+      alpha = (residual dot residual)/(p dot (A*p))
+      logger.info("Iteration: "+count)
+      logger.info("----------------------------------")
+      logger.info("Residual: "+(residual dot residual))
       //update x
       axpy(alpha, p, x)
       //before updating residual, calculate norm (required for beta)
-      val de = math.pow(norm(residual, 2), 2)
+      val de = residual dot residual
       //update residual
       axpy(-1.0*alpha, A*p, residual)
       //calculate beta
-      beta = math.pow(norm(residual, 2), 2)/de
+      beta = (residual dot residual)/de
       //update p
       p :*= beta
       axpy(1.0, residual, p)
-      //update alpha
-      alpha = math.pow(norm(residual, 2), 2)/(p.t * (A*p))
       count += 1
     }
     x
   }
+
+  /**
+    * Solves for x in A.x = b (where A is symmetric +ve semi-definite [[SparkPSDMatrix]])
+    * iteratively using the Conjugate Gradient algorithm.
+    * */
+  def runCG(A: SparkPSDMatrix,
+            b: SparkVector,
+            x: SparkVector,
+            epsilon: Double,
+            MAX_ITERATIONS: Int): SparkVector = {
+
+    A.persist
+    val residual: SparkVector = b - (A*x)
+    val p: SparkVector = b - (A*x)
+
+    var count = 1.0
+    var alpha = 0.0
+    var beta = 0.0
+
+    var netError: Double = normDist(residual, 2.0)
+    var inter: SparkVector = null
+
+    while(netError >= epsilon && count <= MAX_ITERATIONS) {
+
+      inter = A*p
+      inter.persist
+
+      //update alpha
+      alpha = math.pow(netError, 2.0)/(p dot inter)
+      logger.info("Iteration: "+count)
+      logger.info("----------------------------------")
+      logger.info("Residual: "+netError)
+
+      //update x
+      axpyDist(alpha, p, x)
+      x.persist
+
+      //before updating residual, calculate norm (required for beta)
+      val de = math.pow(netError, 2.0)
+
+      //update residual
+      axpyDist(-1.0*alpha, inter, residual)
+      residual.persist
+
+      netError = normDist(residual, 2.0)
+
+      //calculate beta
+      beta = math.pow(netError, 2.0)/de
+      //update p
+      p :*= beta
+      axpyDist(1.0, residual, p)
+      p.persist
+
+      count += 1
+    }
+    p.unpersist
+    residual.unpersist
+    inter.unpersist
+    A.unpersist
+
+    x
+  }
+
+  def runCG(A: SparkBlockedMatrix,
+            b: SparkBlockedVector,
+            x: SparkBlockedVector,
+            epsilon: Double,
+            MAX_ITERATIONS: Int): SparkBlockedVector = {
+
+    A.persist
+    val residual: SparkBlockedVector = b - (A*x)
+    val p: SparkBlockedVector = b - (A*x)
+
+    var count = 1.0
+    var alpha = 0.0
+    var beta = 0.0
+
+    var netError: Double = normBDist(residual, 2.0)
+    var inter: SparkBlockedVector = null
+
+    while(netError >= epsilon && count <= MAX_ITERATIONS) {
+
+      inter = A*p
+      inter.persist
+
+      //update alpha
+      alpha = math.pow(netError, 2.0)/(p dot inter)
+      logger.info("Iteration: "+count)
+      logger.info("----------------------------------")
+      logger.info("Residual: "+netError)
+
+      //update x
+      axpyDist(alpha, p, x)
+      x.persist
+
+      //before updating residual, calculate norm (required for beta)
+      val de = math.pow(netError, 2.0)
+
+      //update residual
+      axpyDist(-1.0*alpha, inter, residual)
+      residual.persist
+
+      netError = normBDist(residual, 2.0)
+
+      //calculate beta
+      beta = math.pow(netError, 2.0)/de
+      //update p
+      p :*= beta
+      axpyDist(1.0, residual, p)
+      p.persist
+
+      count += 1
+    }
+    p.unpersist
+    residual.unpersist
+    inter.unpersist
+    A.unpersist
+
+    x
+  }
+
+
+
+  def runCG(A: PartitionedMatrix,
+            b: PartitionedVector,
+            x: PartitionedVector,
+            epsilon: Double,
+            MAX_ITERATIONS: Int): PartitionedVector = {
+
+    val residual: PartitionedVector = b - (A*x)
+    val p: PartitionedVector = b - (A*x)
+
+    var count = 1.0
+    var alpha = 0.0
+    var beta = 0.0
+
+    var netError: Double = normBDist(residual, 2.0)
+    var inter: PartitionedVector = null
+
+    while(netError >= epsilon && count <= MAX_ITERATIONS) {
+
+      inter = A*p
+
+      //update alpha
+      alpha = math.pow(netError, 2.0)/(p dot inter)
+      logger.info("Iteration: "+count)
+      logger.info("----------------------------------")
+      logger.info("Residual: "+netError)
+
+      //update x
+      axpyDist(alpha, p, x)
+
+      //before updating residual, calculate norm (required for beta)
+      val de = math.pow(netError, 2.0)
+
+      //update residual
+      axpyDist(-1.0*alpha, inter, residual)
+
+
+      netError = normBDist(residual, 2.0)
+
+      //calculate beta
+      beta = math.pow(netError, 2.0)/de
+      //update p
+      p :*= beta
+      axpyDist(1.0, residual, p)
+
+      count += 1
+    }
+
+    x
+  }
+
 
   /**
    * Solves for X in A.X = B (where A is symmetric +ve semi-definite)
@@ -114,7 +299,7 @@ object ConjugateGradient {
                  epsilon: Double,
                  MAX_ITERATIONS: Int): DenseMatrix[Double] = {
     val residual:DenseMatrix[Double] = b - (A*x)
-    val p = residual
+    val p = b - (A*x)
     var count = 1.0
 
     var alphaVec = DenseVector.tabulate[Double](x.cols)(i => {

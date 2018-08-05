@@ -21,15 +21,16 @@ package io.github.mandar2812.dynaml.models.gp
 import breeze.linalg.{DenseMatrix, DenseVector, cholesky, inv}
 import breeze.numerics.sqrt
 import io.github.mandar2812.dynaml.kernels.LocalScalarKernel
-import io.github.mandar2812.dynaml.optimization.{LaplacePosteriorMode, Likelihood}
+import io.github.mandar2812.dynaml.probability.Likelihood
 
 /**
   * @author mandar2812 on 6/4/16.
   */
 class LaplaceBinaryGPC(data: Stream[(DenseVector[Double], Double)],
-                                kernel: LocalScalarKernel[DenseVector[Double]],
-                                l: Likelihood[DenseVector[Double], DenseVector[Double], DenseMatrix[Double],
-                                  (DenseVector[Double], DenseVector[Double])]) extends
+                       kernel: LocalScalarKernel[DenseVector[Double]],
+                       l: Likelihood[
+                         DenseVector[Double], DenseVector[Double], DenseMatrix[Double],
+                         (DenseVector[Double], DenseVector[Double])]) extends
   AbstractGPClassification[Stream[(DenseVector[Double], Double)],
     DenseVector[Double]](data, kernel, l) {
 

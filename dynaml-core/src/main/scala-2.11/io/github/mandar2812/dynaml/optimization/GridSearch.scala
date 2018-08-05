@@ -18,7 +18,6 @@ under the License.
 * */
 package io.github.mandar2812.dynaml.optimization
 
-import org.apache.log4j.Logger
 
 /**
  * @author mandar2812 datum 24/6/15.
@@ -26,38 +25,26 @@ import org.apache.log4j.Logger
  * An implementation of Grid Search
  * global optimization for Kernel Models
  */
-class GridSearch[M <: GloballyOptimizable](model: M)
-  extends GlobalOptimizer[M]{
-
-  override protected val logger = Logger.getLogger(this.getClass)
-
-  override val system = model
-
-  override def setLogScale(t: Boolean) = {
-    logarithmicScale = t
-    this
-  }
-
-  override def setGridSize(s: Int) = {
-    this.gridsize = s
-    this
-  }
-
-  override def setStepSize(s: Double) = {
-    this.step = s
-    this
-  }
+class GridSearch[M <: GloballyOptimizable](model: M) extends
+  AbstractGridSearch[M, M](model) with
+  GlobalOptimizer[M] {
 
   override def optimize(initialConfig: Map[String, Double],
                         options: Map[String, String] = Map()) = {
 
-    val energyLandscape = getEnergyLandscape(initialConfig, options).toMap
+    val energyLandscape = getEnergyLandscape(initialConfig, options, meanFieldPrior).toMap
     val optimum = energyLandscape.keys.min
 
-    logger.info("Optimum value of energy is: "+optimum+
-      "\nConfiguration: "+energyLandscape(optimum))
+    print("Optimum value of energy is: ")
+    pprint.pprintln(optimum)
+    println("Configuration: ")
+    pprint.pprintln(energyLandscape(optimum))
 
-    system.energy(energyLandscape(optimum), options)
+    //Persist the current configuration to the model memory
+    if(options.contains("persist") && (options("persist") == "true" || options("persist") == "1"))
+      system.persist(energyLandscape(optimum))
+
     (system, energyLandscape(optimum))
   }
 }
+

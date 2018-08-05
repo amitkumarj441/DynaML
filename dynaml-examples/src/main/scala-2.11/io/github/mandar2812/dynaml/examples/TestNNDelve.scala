@@ -21,16 +21,25 @@ package io.github.mandar2812.dynaml.examples
 import breeze.linalg.{DenseVector => BDV}
 import io.github.mandar2812.dynaml.evaluation.RegressionMetrics
 import io.github.mandar2812.dynaml.graph.FFNeuralGraph
-import io.github.mandar2812.dynaml.models.GLMPipe
+import io.github.mandar2812.dynaml.modelpipe.GLMPipe
 import io.github.mandar2812.dynaml.models.lm.GeneralizedLinearModel
-import io.github.mandar2812.dynaml.models.neuralnets.FeedForwardNetwork
-import io.github.mandar2812.dynaml.pipes._
-import io.github.mandar2812.dynaml.{DynaMLPipe, utils}
+import io.github.mandar2812.dynaml.models.neuralnets.{Activation, FeedForwardNetwork, GenericFFNeuralNet, NeuralStackFactory}
+import io.github.mandar2812.dynaml.pipes.{DataPipe, _}
+import io.github.mandar2812.dynaml.utils
+import io.github.mandar2812.dynaml.DynaMLPipe._
+import io.github.mandar2812.dynaml.optimization.FFBackProp
+import io.github.mandar2812.dynaml.utils.GaussianScaler
 
 /**
   * Created by mandar on 11/1/16.
   */
 object TestNNDelve {
+
+  implicit val transform: DataPipe[
+    Stream[(BDV[Double], Double)],
+    Stream[(BDV[Double], BDV[Double])]] =
+    DataPipe((d: Stream[(BDV[Double], Double)]) => d.map(el => (el._1, BDV(el._2))))
+
   def apply (hidden: Int = 2, nCounts:List[Int] = List(), acts:List[String],
              training: Int = 100, test: Int = 1000,
              columns: List[Int] = List(10,0,1,2,3,4,5,6,7,8,9),
@@ -76,10 +85,7 @@ object TestNNDelve {
         val gr = FFNeuralGraph(trainTest._1._1.head._1.length, 1, hidden,
           acts, nCounts)
 
-        val transform = DataPipe((d: Stream[(BDV[Double], Double)]) =>
-          d.map(el => (el._1, BDV(el._2))))
-
-        val model = new FeedForwardNetwork[Stream[(BDV[Double], Double)]](trainTest._1._1, gr, transform)
+        val model = new FeedForwardNetwork[Stream[(BDV[Double], Double)]](trainTest._1._1, gr)
 
         model.setLearningRate(stepSize)
           .setMaxIterations(maxIt)
@@ -125,6 +131,88 @@ object TestNNDelve {
 
   }
 
+
+}
+
+object TestNeuralStackDelve {
+
+  def apply(
+    nCounts: List[Int], acts: List[Activation[BDV[Double]]],
+    training: Int = 100, test: Int = 1000,
+    columns: List[Int] = List(10,0,1,2,3,4,5,6,7,8,9),
+    stepSize: Double = 0.01, maxIt: Int = 30, mini: Double = 1.0,
+    alpha: Double = 0.5, regularization: Double = 0.5) = {
+
+
+    type Data = Stream[(BDV[Double], BDV[Double])]
+    type Scales = (GaussianScaler, GaussianScaler)
+
+    val readData = fileToStream >
+      extractTrainingFeatures(columns, Map()) >
+      splitFeaturesAndTargets >
+      StreamDataPipe((pattern: (BDV[Double], Double)) => (pattern._1, BDV(pattern._2)))
+
+    val preProcessPipe = duplicate(readData) >
+      splitTrainingTest(training, test) >
+      gaussianScalingTrainTest
+
+    val modelTrainTestPipe = DataPipe((dataAndScales: (Data, Data, Scales)) => {
+      /*
+      * First create the elements needed for
+      * the neural architecture:
+      *
+      * 1. A Stack Factory
+      * 2. A random weight generator
+      * 3. A learning procedure
+      * */
+
+      val (trainingData, testData, scales) = dataAndScales
+
+      /*
+      * The stack factory will create the architecture to the specification
+      * every time it is given the layer parameters.
+      * */
+      val stackFactory = NeuralStackFactory(nCounts)(acts)
+
+      val weightsInitializer = GenericFFNeuralNet.getWeightInitializer(nCounts)
+
+      val backPropOptimizer =
+        new FFBackProp(stackFactory)
+          .setNumIterations(maxIt)
+          .setRegParam(regularization)
+          .setStepSize(stepSize)
+          .setMiniBatchFraction(mini)
+          .momentum_(alpha)
+
+      val ff_neural_net = GenericFFNeuralNet(
+        backPropOptimizer,
+        trainingData, identityPipe[Data],
+        weightsInitializer)
+
+      /*
+      * Train the model
+      * */
+      ff_neural_net.learn()
+
+      /*
+      * Generate predictions for the test data
+      * and evaluate performance.
+      * */
+      val predictionsAndTargets = (scales._2*scales._2).i(testData.map(p => (ff_neural_net.predict(p._1), p._2)))
+
+      (ff_neural_net, new RegressionMetrics(
+        predictionsAndTargets.map(c => (c._1(0), c._2(0))).toList,
+        predictionsAndTargets.length))
+
+    })
+
+    val dataFlow = preProcessPipe > modelTrainTestPipe
+
+
+    val dataFile = dataDir+"/delve.csv"
+    dataFlow((dataFile, dataFile))
+  }
+
 }
 
 
@@ -137,7 +225,7 @@ object TestGLMDelve {
     val modelpipe = new GLMPipe(
       (tt: ((Stream[(BDV[Double], Double)], Stream[(BDV[Double], Double)]),
         (BDV[Double], BDV[Double]))) => tt._1._1) >
-      DynaMLPipe.trainParametricModel[
+      trainParametricModel[
         Stream[(BDV[Double], Double)],
         BDV[Double], BDV[Double], Double,
         Stream[(BDV[Double], Double)],
@@ -172,15 +260,15 @@ object TestGLMDelve {
 
       })
 
-    val preProcessPipe = DynaMLPipe.fileToStream >
-      DynaMLPipe.extractTrainingFeatures(columns, Map()) >
-      DynaMLPipe.splitFeaturesAndTargets
+    val preProcessPipe = fileToStream >
+      extractTrainingFeatures(columns, Map()) >
+      splitFeaturesAndTargets
 
     val trainTestPipe = DataPipe(preProcessPipe, preProcessPipe) >
       DataPipe((data: (Stream[(BDV[Double], Double)], Stream[(BDV[Double], Double)])) => {
         (data._1.take(training), data._2.takeRight(test))
       }) >
-      DynaMLPipe.trainTestGaussianStandardization >
+      trainTestGaussianStandardization >
       BifurcationPipe(modelpipe,
         DataPipe((tt: ((Stream[(BDV[Double], Double)], Stream[(BDV[Double], Double)]),
           (BDV[Double], BDV[Double]))) => (tt._1._2, tt._2._1, tt._2._2))) >

@@ -18,11 +18,16 @@ under the License.
 * */
 package io.github.mandar2812.dynaml.optimization
 
-import breeze.linalg.{DenseMatrix, inv, DenseVector}
+import breeze.linalg.{DenseMatrix, DenseVector}
 
 /**
-  * Created by mandar on 9/2/16.
-  */
+  * Solves the linear problem resulting from applying the Karush-Kuhn-Tucker
+  * conditions on the Dual Least Squares SVM optimization problem.
+  *
+  * @param modelTask Set to "regression" or "classification"
+  * @author mandar date 9/2/16.
+  *
+  * */
 class LSSVMLinearSolver(modelTask: String) extends
 RegularizedOptimizer[DenseVector[Double],
   DenseVector[Double], Double,
@@ -34,19 +39,34 @@ RegularizedOptimizer[DenseVector[Double],
   /**
     * Solve the convex optimization problem.
     *
-    * A = [K + I*reg]|[1]
-    *      [1.t]     |[0]
+    * <table border="0">
+    *   <tr>
+    *     <th>A</th> <th>&nbsp;=&nbsp;</th> <th>K + &gamma;&times;I</th> <th>1</th>
+    *   </tr>
+    *   <tr>
+    *     <th>&nbsp;</th> <th>&nbsp;</th> <th>1<sup>T</sup></th> <th>0</th>
+    *   </tr>
+    *   <tr height = 20px></tr>
+    *   <tr>
+    *     <th>b</th> <th>&nbsp;=&nbsp;</th> <th>y</th> <th>&nbsp;</th>
+    *   </tr>
+    *   <tr>
+    *     <th>&nbsp;</th> <th>&nbsp;</th> <th>0</th> <th>&nbsp;</th>
+    *   </tr>
+    * </table>
     *
-    * b = [y]
-    *     [0]
-    *
-    * return inverse(A)*b
-    **/
+    * @param nPoints The number of data points, i.e. also the size of matrix A
+    * @param linearSystem The components of the linear system (A, b) as a tuple.
+    * @param initialP An initial estimate of the linear system solution, this parameter
+    *                 is redundant for [[LSSVMLinearSolver]] as the exact solution is
+    *                 computed.
+    * @return A<sup>-1</sup>b
+    * */
   override def optimize(nPoints: Long,
-                        ParamOutEdges: (DenseMatrix[Double], DenseVector[Double]),
+                        linearSystem: (DenseMatrix[Double], DenseVector[Double]),
                         initialP: DenseVector[Double]): DenseVector[Double] = {
 
-    val (kernelMat,labels) = ParamOutEdges
+    val (kernelMat,labels) = linearSystem
 
     val OmegaMat = task match {
       //In case of regression Omega(i,j)  = K(i, j)
@@ -73,6 +93,6 @@ RegularizedOptimizer[DenseVector[Double],
           DenseVector.vertcat[Double](ones.toDenseVector, DenseVector(0.0)))
     }
 
-    inv(a)*b
+    a\b
   }
 }

@@ -19,15 +19,19 @@ under the License.
 
 package io.github.mandar2812.dynaml.optimization
 
-import breeze.linalg.{DenseMatrix, inv, DenseVector}
+import breeze.linalg.{DenseMatrix, DenseVector}
 
 /**
-  * Created by mandar on 9/2/16.
+  * @author mandar2812 date 9/2/16.
+  *
+  * Solves the Ordinary Least Squares system exactly
+  * given X.t * X and X.t*y
   */
 class RegularizedLSSolver extends
   RegularizedOptimizer[DenseVector[Double],
     DenseVector[Double], Double,
     (DenseMatrix[Double], DenseVector[Double])] {
+
   /**
     * Solve the convex optimization problem.
     *
@@ -42,11 +46,13 @@ class RegularizedLSSolver extends
                         initialP: DenseVector[Double]): DenseVector[Double] = {
 
     val (designMatrix,labels) = ParamOutEdges
-    val smoother = DenseMatrix.eye[Double](initialP.length)*regParam
+    val smoother = DenseMatrix.tabulate[Double](initialP.length, initialP.length)((i,j) => {
+      if(i != j) 0.0 else if(i < initialP.length-1) regParam else 1.0
+    })
     //Construct matrix A and b block by block
-    val A = designMatrix.t*designMatrix + smoother
-    val b = designMatrix.t*labels
+    val A = designMatrix + smoother
+    val b = labels
 
-    inv(A)*b
+    A\b
   }
 }

@@ -18,7 +18,8 @@ under the License.
 * */
 package io.github.mandar2812.dynaml.graph
 
-import breeze.linalg.DenseVector
+import breeze.linalg.{DenseMatrix, DenseVector}
+import breeze.stats.distributions.Uniform
 import com.tinkerpop.blueprints.{Graph, GraphFactory}
 import com.tinkerpop.frames.{FramedGraph, FramedGraphFactory}
 import io.github.mandar2812.dynaml.graph.utils.{Neuron, Synapse}
@@ -26,7 +27,6 @@ import org.apache.log4j.Logger
 
 import scala.collection.JavaConversions
 import scala.collection.JavaConversions._
-import scala.util.Random
 
 /**
   * Represents the underlying graph of a
@@ -47,7 +47,7 @@ import scala.util.Random
   *            4) "recLinear"
   * */
 class FFNeuralGraph(baseGraph: FramedGraph[Graph], act: List[String], hidden: Int = 1)
-  extends NeuralGraph[FramedGraph[Graph]]{
+  extends NeuralGraph[FramedGraph[Graph], DenseVector[Double], DenseVector[Double]]{
 
   override protected val g = baseGraph
 
@@ -81,9 +81,9 @@ class FFNeuralGraph(baseGraph: FramedGraph[Graph], act: List[String], hidden: In
     g.getEdges[Synapse]("layer", layer, classOf[Synapse])
   )
 
-  override val num_inputs: Int = getLayer(0).size - 1
+  val num_inputs: Int = getLayer(0).size - 1
 
-  override val num_outputs: Int = getLayer(hidden_layers+1).size
+  val num_outputs: Int = getLayer(hidden_layers+1).size
 
   /**
     * Perform a forward pass through the network to
@@ -103,6 +103,32 @@ class FFNeuralGraph(baseGraph: FramedGraph[Graph], act: List[String], hidden: In
       .toMap
 
     DenseVector.tabulate[Double](num_outputs)(i => outputs(i+1))
+  }
+
+  /**
+    * Get as a breeze [[DenseMatrix]] the synapses between layer l and l-1.
+    *
+    * @param layer The layer number, can vary from 1 (input layer synapses)
+    *              to hidden_layers + 1 (output layer synapses)
+    *
+    * @return The respective synapses as elements of a matrix
+    *
+    * */
+  def getSynapsesAsMatrix(layer: Int): DenseMatrix[Double] = {
+    val synapses = getLayerSynapses(layer)
+
+    val inN = getLayer(layer-1).toList.length
+    val outN =
+      if(layer <= hidden_layers) getLayer(layer).toList.length-1
+      else getLayer(layer).toList.length
+
+    val synapsesMap: Map[(Int, Int), Double] =
+      synapses.map(s => (
+        (s.getPostSynapticNeuron().getNID(),
+          s.getPreSynapticNeuron().getNID()),
+        s.getWeight())).toMap
+
+    DenseMatrix.tabulate[Double](outN, inN)((i,j) => synapsesMap((i+1, j+1)))
   }
 
   /**
@@ -170,6 +196,8 @@ object FFNeuralGraph {
             nCounts:List[Int] = List(),
             biasFlag: Boolean = true): FFNeuralGraph = {
 
+    val uni = new Uniform(-1.0, 1.0)
+
     val neuronCounts:List[Int] = if(nCounts.isEmpty)
       List.tabulate[Int](hidden_layers+1)(i => {
         if(i <= hidden_layers) 3 else num_outputs
@@ -218,7 +246,7 @@ object FFNeuralGraph {
               fg.addEdge((layer, vertex.getNID(), neuron.getNID()),
                 vertex.asVertex(), neuron.asVertex(), "synapse", classOf[Synapse])
             synapse.setLayer(layer)
-            synapse.setWeight(Random.nextDouble())
+            synapse.setWeight(uni.draw)
             synapse.setPrevWeightUpdate(0.0)
           })
         })

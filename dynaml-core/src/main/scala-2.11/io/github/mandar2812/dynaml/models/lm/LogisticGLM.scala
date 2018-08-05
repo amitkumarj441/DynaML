@@ -21,16 +21,22 @@ package io.github.mandar2812.dynaml.models.lm
 
 import breeze.linalg.DenseVector
 import breeze.numerics._
+import breeze.stats.distributions.Gaussian
 import io.github.mandar2812.dynaml.optimization._
-import org.apache.commons.math3.distribution.NormalDistribution
 
 /**
-  * Created by mandar on 31/3/16.
+  * @author mandar2812 date: 31/3/16.
+  *
+  * Logistic model for binary classification.
+  * @param data The training data as a stream of tuples
+  * @param numPoints The number of training data points
+  * @param map The basis functions used to map the input
+  *            features to a possible higher dimensional space
   */
 class LogisticGLM(data: Stream[(DenseVector[Double], Double)],
                   numPoints: Int,
                   map: (DenseVector[Double]) => DenseVector[Double] =
-                  identity[DenseVector[Double]] _)
+                  identity[DenseVector[Double]])
   extends GeneralizedLinearModel[
     Stream[(DenseVector[Double], Double)]
     ](data, numPoints, map) {
@@ -49,17 +55,23 @@ class LogisticGLM(data: Stream[(DenseVector[Double], Double)],
 
 }
 
-
+/**
+  * Probit model for binary classification.
+  * @param data The training data as a stream of tuples
+  * @param numPoints The number of training data points
+  * @param map The basis functions used to map the input
+  *            features to a possible higher dimensional space
+  */
 class ProbitGLM(data: Stream[(DenseVector[Double], Double)],
                 numPoints: Int,
                 map: (DenseVector[Double]) => DenseVector[Double] =
-                identity[DenseVector[Double]] _)
+                identity[DenseVector[Double]])
   extends LogisticGLM(data, numPoints, map) {
 
-  private val standardGaussian = new NormalDistribution(0, 1.0)
+  private val standardGaussian = new Gaussian(0, 1.0)
 
   override val h = (x: Double) =>
-    standardGaussian.cumulativeProbability(x)
+    standardGaussian.cdf(x)
 
   override protected val optimizer =
     new GradientDescent(

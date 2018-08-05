@@ -22,13 +22,15 @@ class PolynomialKernel(
     state += ("degree" -> d.toDouble)
   }
 
-  def setoffset(o: Int): Unit = {
+  def setoffset(o: Double): Unit = {
     this.offset = o
     state += ("offset" -> o)
   }
 
-  override def evaluate(x: DenseVector[Double], y: DenseVector[Double]): Double =
-    math.pow((x.t * y) + state("offset"), state("degree").toInt)
+  override def evaluateAt(config: Map[String, Double])(
+    x: DenseVector[Double],
+    y: DenseVector[Double]): Double =
+    math.pow((x.t * y) + config("offset"), config("degree").toInt)
 
   override def setHyperParameters(h: Map[String, Double]) = {
     super.setHyperParameters(h)
